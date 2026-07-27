@@ -16,26 +16,27 @@
  *
  * There are two ways to get color into a 3MF:
  *
- *   (a) The *materials extension*: a <basematerials> resource listing colored materials,
- *       with each <object> (or each triangle, via pid/p1 attributes) referencing one.
- *       Support is uneven: PrusaSlicer/OrcaSlicer/Bambu Studio read <basematerials> and
- *       map materials onto extruders, but per-triangle assignment is frequently dropped.
+ *   (a) <basematerials> (displaycolor per object/triangle). Simple, but Bambu Studio
+ *       does NOT parse it: the model imports grey ("load geometry data only").
+ *   (b) <m:colorgroup> from the 3MF *materials extension*, with colors assigned to
+ *       vertices/faces (pid + p1/p2/p3 per triangle). This is the "Face Coloring"
+ *       data Bambu Studio (2.5+) parses — see
+ *       wiki.bambulab.com/en/bambu-studio/Standard-3MF-File-Color-Parsing —
+ *       and PrusaSlicer/OrcaSlicer read it as well.
  *
- *   (b) One *object per color*, assembled into a single build item with <components>.
- *       Every slicer understands objects and components — the import shows up as one
- *       model made of N parts, each of which you can assign to an extruder/filament.
+ * So we use (b):
+ *   - one <m:colorgroup> holding one <m:color> per filament color,
+ *   - one <object> per color; EVERY triangle carries pid/p1/p2/p3 pointing at its
+ *     color index (per-triangle assignment = "face coloring"; object-level pid alone
+ *     is not picked up by every slicer),
+ *   - one <build> <item> per color object. The meshes are already in plate
+ *     coordinates, so all items land in place, aligned — same layout as the preview.
+ *     A <components> assembly would import as a single model, but per-triangle
+ *     colors do not reliably survive component resolution in every slicer, so flat
+ *     build items are the safer choice.
  *
- * We do BOTH, in the reliable combination:
- *   - one <object> per color (never per-triangle color), and
- *   - a <basematerials> resource so each object carries its display color, which lets
- *     slicers pre-assign filaments and makes the parts visually distinguishable.
- *   - a final <object type="model"> with <components> referencing every color object,
- *     so the whole plate arrives as ONE model with correctly aligned parts. Dropping the
- *     assembly would leave the user with N separate objects to re-align by hand.
- *
- * This is the "one object per color inside a single 3MF" mode, which is what the UI
- * reports as active. Coordinates are absolute (already positioned), so every component
- * uses an identity transform — no transform bugs possible.
+ * requiredextensions="m" declares the materials extension, which every slicer that
+ * reads colors supports.
  *
  * Units are millimetres (unit="millimeter" on <model>), matching the rest of the app.
  * ====================================================================================
@@ -158,11 +159,14 @@ const xmlEscape = (s) =>
   String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 
-/** #rrggbb -> #RRGGBBFF (3MF display colors carry an alpha channel). */
+/** #rrggbb -> #RRGGBBFF (3MF colors carry an alpha channel). */
 function displayColor(hex) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
   return `#${(m ? m[1] : "cccccc").toUpperCase()}FF`;
 }
+
+/** Resource id of the single shared colorgroup (all color indices live in it). */
+const COLORGROUP_ID = 1;
 
 /** Coordinates: 4 decimals is well below printer resolution and keeps files small. */
 const fmt = (v) => {
@@ -174,8 +178,13 @@ const fmt = (v) => {
  * Serialize one color group as a <mesh>. Vertices are shared within a group; each box
  * contributes its own 8 vertices, so every box is an independently closed volume — which
  * is what slicers want when parts merely touch.
+ *
+ * Every triangle carries pid/p1/p2/p3 pointing at the group's color index inside the
+ * shared colorgroup. Per-triangle ("face coloring") assignment is what Bambu Studio's
+ * color parser reads; p2 and p3 are required by the spec when pid references a
+ * colorgroup, and simply repeat p1 since the whole face is one color.
  */
-function meshXml(group) {
+function meshXml(group, colorIndex) {
   const v = group.verts;
   const t = group.tris;
   const out = ["<mesh><vertices>"];
@@ -184,7 +193,10 @@ function meshXml(group) {
   }
   out.push("</vertices><triangles>");
   for (let i = 0; i < t.length; i += 3) {
-    out.push(`<triangle v1="${t[i]}" v2="${t[i + 1]}" v3="${t[i + 2]}"/>`);
+    out.push(
+      `<triangle v1="${t[i]}" v2="${t[i + 1]}" v3="${t[i + 2]}" ` +
+        `pid="${COLORGROUP_ID}" p1="${colorIndex}" p2="${colorIndex}" p3="${colorIndex}"/>`,
+    );
   }
   out.push("</triangles></mesh>");
   return out.join("");
@@ -200,47 +212,42 @@ export function exportThreeMF(groups, name) {
   const used = groups.filter((g) => g.tris.length > 0);
 
   // --- resource ids -------------------------------------------------------
-  // id 1  = the basematerials resource
-  // id 2.. = one object per color
-  // last  = the assembly object that <components>s them together
-  const MATERIALS_ID = 1;
+  // id 1  = the shared colorgroup (one color index per filament)
+  // id 2.. = one object per color, each also one build item
   const firstObjectId = 2;
-  const assemblyId = firstObjectId + used.length;
 
-  // <basematerials>: index i of this list is what an object references via pindex.
-  const materials = used
-    .map((g) => `<base name="${xmlEscape(g.name)}" displaycolor="${displayColor(g.colorHex)}"/>`)
+  // <m:colorgroup>: index i of this list is what triangles reference via p1/p2/p3.
+  const colorgroup = used
+    .map((g) => `<m:color color="${displayColor(g.colorHex)}"/>`)
     .join("");
 
-  // One object per color. pid points at the basematerials resource, pindex at this
-  // object's entry in it — that pairing is what gives the part its color in the slicer.
+  // One object per color, face-colored via the colorgroup (see meshXml).
   const objects = used
     .map((g, i) =>
-      `<object id="${firstObjectId + i}" type="model" pid="${MATERIALS_ID}" pindex="${i}" ` +
-      `name="${xmlEscape(g.name)}">${meshXml(g)}</object>`
+      `<object id="${firstObjectId + i}" type="model" ` +
+      `name="${xmlEscape(g.name)}">${meshXml(g, i)}</object>`
     )
     .join("");
 
-  // The assembly. Identity transforms: component meshes are already in plate coordinates.
-  const components = used
-    .map((_, i) => `<component objectid="${firstObjectId + i}"/>`)
+  // One build item per color object. Meshes are already in plate coordinates, so the
+  // parts import aligned without any transforms or a components assembly.
+  const items = used
+    .map((_, i) => `<item objectid="${firstObjectId + i}"/>`)
     .join("");
 
   const model = `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US"
        xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
-       xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02">
+       xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02"
+       requiredextensions="m">
  <metadata name="Title">${xmlEscape(name)}</metadata>
  <metadata name="Application">colcal</metadata>
  <resources>
-  <basematerials id="${MATERIALS_ID}">${materials}</basematerials>
+  <m:colorgroup id="${COLORGROUP_ID}">${colorgroup}</m:colorgroup>
   ${objects}
-  <object id="${assemblyId}" type="model" name="${xmlEscape(name)}">
-   <components>${components}</components>
-  </object>
  </resources>
  <build>
-  <item objectid="${assemblyId}"/>
+  ${items}
  </build>
 </model>`;
 
@@ -267,7 +274,7 @@ export function exportThreeMF(groups, name) {
 
 /** Human-readable description of the export mode, shown in the UI. */
 export const THREEMF_MODE =
-  "one object per color inside a single 3MF (components assembly + basematerials colors)";
+  "one object per color, face-colored via a 3MF colorgroup (materials extension)";
 
 /* ------------------------------------------------------------------ *
  * STL (binary) — fallback, colorless: all groups welded into one solid.
@@ -328,9 +335,8 @@ export function buildLegend(projectName, params, geometry) {
     units: "mm",
     params,
     colors: params.colors,
-    baseThickness_mm: params.baseThickness,
     note: "Row/column indices match the numbers embossed left of and below each square. " +
-      "Recipes are ordered bottom-to-top; thicknesses exclude the shared base plate.",
+      "Recipes are ordered bottom-to-top; thicknesses are measured from the build plate.",
     swatches: geometry.swatches.map((s) => ({
       square: s.square,
       squareLabel: s.squareLabel,

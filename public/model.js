@@ -11,8 +11,8 @@
  *   2. buildGeometry(params, squares) -> raw triangle meshes, grouped by color, ready for
  *                               both the Three.js preview and the 3MF/STL exporters.
  *
- * All dimensions are millimetres. Z is up (matching what slicers expect), so the base
- * plate occupies z = 0 .. baseThickness and swatches stack upwards from there.
+ * All dimensions are millimetres. Z is up (matching what slicers expect). There is no
+ * base plate: swatches and embossed labels sit directly on the build plate at z = 0.
  */
 
 import { textSegments } from "./font.js";
@@ -23,16 +23,15 @@ import { textSegments } from "./font.js";
 
 export const DEFAULT_PARAMS = {
   swatchSize: 6, // swatch footprint, mm (square: 6 x 6)
-  swatchGap: 2, // gap between swatches inside a square, mm
-  squareGap: 8, // gap between the six squares on the base plate, mm
-  baseThickness: 1.0, // shared opaque base plate, mm
+  swatchGap: 0, // gap between swatches inside a square, mm
+  squareGap: 0, // gap between the six squares, mm
   layerHeight: 0.1, // every thickness is snapped to a multiple of this, mm
   colors: {
     c1: "#ff0000", // filament 1 (default red)   -> single-colour square "R"
     c2: "#00ff00", // filament 2 (default green) -> single-colour square "G"
     c3: "#0000ff", // filament 3 (default blue)  -> single-colour square "B"
-    base: "#cfcfcf", // the opaque base plate + embossed labels (4th filament / whatever
-    // is loaded first). Not one of the three test colors.
+    base: "#cfcfcf", // the embossed labels (4th filament / whatever is loaded first).
+    // Not one of the three test colors.
   },
 };
 
@@ -78,11 +77,6 @@ export function normalizeParams(input = {}) {
     swatchSize: clamp(num(p.swatchSize, DEFAULT_PARAMS.swatchSize) || 6, 1, 50),
     swatchGap: clamp(num(p.swatchGap, DEFAULT_PARAMS.swatchGap), 0, 50),
     squareGap: clamp(num(p.squareGap, DEFAULT_PARAMS.squareGap), 0, 100),
-    // The base is a real printed thickness, so it snaps to the layer height too.
-    baseThickness: snapToLayer(
-      clamp(num(p.baseThickness, DEFAULT_PARAMS.baseThickness) || 1, layerHeight, 20),
-      layerHeight,
-    ),
     layerHeight: round4(layerHeight),
     colors: { ...DEFAULT_PARAMS.colors, ...(input.colors || {}) },
   };
@@ -370,7 +364,7 @@ function addStroke(g, x0, y0, x1, y1, z0, z1, width) {
   g.boxes++;
 }
 
-/** Emboss a text label onto the base plate. */
+/** Emboss a text label (a stack of strokes) onto the build plate. */
 function addLabel(g, text, size, x, y, align, z0, z1, width) {
   for (const s of textSegments(text, size, x, y, align)) {
     addStroke(g, s.x0, s.y0, s.x1, s.y1, z0, z1, width);
@@ -391,7 +385,7 @@ export function computeLayout(params) {
 
   const cellW = labelPad + gridSpan;
   const cellH = labelPad + gridSpan + titleH;
-  const margin = Math.max(2, p.squareGap / 2); // plate border
+  const margin = Math.max(2, p.squareGap / 2); // border around the whole layout
 
   const width = 2 * margin + 3 * cellW + 2 * p.squareGap;
   const depth = 2 * margin + 2 * cellH + p.squareGap;
@@ -409,7 +403,7 @@ export function computeLayout(params) {
     margin,
     width,
     depth,
-    // Labels are embossed at least 2 layers proud of the base so they survive slicing.
+    // Labels are at least 2 layers tall so they survive slicing.
     embossHeight: Math.max(2 * p.layerHeight, 0.2),
     titleStroke: Math.max(0.45, titleSize * 0.14),
     idxStroke: Math.max(0.35, idxSize * 0.18),
@@ -426,11 +420,11 @@ export function computeLayout(params) {
  */
 export function buildGeometry(params, squares) {
   const L = computeLayout(params);
-  const baseTop = L.baseThickness;
+  const baseTop = 0; // no base plate — everything sits directly on the build plate
 
   // One group per filament. Order matters only for display.
   const groups = {
-    base: newGroup("base", "Base plate + labels", L.colors.base),
+    base: newGroup("base", "Labels", L.colors.base),
     c1: newGroup("c1", `Color 1 (${COLOR_LABELS.c1})`, L.colors.c1),
     c2: newGroup("c2", `Color 2 (${COLOR_LABELS.c2})`, L.colors.c2),
     c3: newGroup("c3", `Color 3 (${COLOR_LABELS.c3})`, L.colors.c3),
@@ -439,9 +433,6 @@ export function buildGeometry(params, squares) {
   // Centre the model on the origin in XY (slicers drop it on the plate centre).
   const ox = -L.width / 2;
   const oy = -L.depth / 2;
-
-  // --- the shared opaque base plate ---------------------------------------
-  addBox(groups.base, ox, oy, 0, ox + L.width, oy + L.depth, baseTop);
 
   const swatches = [];
   let maxZ = baseTop;

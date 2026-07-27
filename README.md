@@ -57,15 +57,14 @@ Everything else is served statically from `./public`.
   "name": "my-calibration-v1",
   "params": {
     "swatchSize": 6, // swatch footprint in mm (square)
-    "swatchGap": 2, // gap between swatches inside a square, mm
-    "squareGap": 8, // gap between the six squares, mm
-    "baseThickness": 1.0, // shared opaque base plate, mm
+    "swatchGap": 0, // gap between swatches inside a square, mm
+    "squareGap": 0, // gap between the six squares, mm
     "layerHeight": 0.1, // all thicknesses snap to multiples of this, mm
     "colors": {
       "c1": "#ff0000",
       "c2": "#00ff00",
       "c3": "#0000ff",
-      "base": "#cfcfcf" // base plate + embossed labels (4th filament)
+      "base": "#cfcfcf" // embossed labels (4th filament)
     }
   },
   "squares": [
@@ -90,7 +89,8 @@ Everything else is served statically from `./public`.
 
 ## The model
 
-A flat base plate holding six 5×5 grids of raised swatches, laid out 3×2:
+Six 5×5 grids of raised swatches, laid out 3×2. There is no base plate — swatches and
+labels sit directly on the build plate:
 
 ```
 R          G          B          <- one square per filament color
@@ -105,18 +105,20 @@ R          G          B          <- one square per filament color
 
 **147 swatches total.** Each square is embossed with its identifier plus 1–5 row indices (left) and
 column indices (below), so a physical swatch maps back to a cell — cell `R3C4` is row 3, column 4.
-Every stack sits on the shared opaque base.
 
-At the defaults the plate is ~154 × 114 mm and 3.5 mm tall.
+At the defaults (no gaps between swatches or squares) the layout is ~110 × 84 mm and 2.5 mm tall.
 
 ## Export
 
-- **`.3mf` (primary)** — **one object per color inside a single 3MF**: one `<object>` per filament,
-  a `<basematerials>` resource giving each its display color, and a final assembly object whose
-  `<components>` reference them all so the plate imports as one aligned model made of colored parts
-  you can assign to extruders. This avoids per-triangle color assignment, which slicers support
-  inconsistently. The active mode is stated in the UI. (The container and XML are validated
-  automatically; opening it in your slicer of choice is the last check.)
+- **`.3mf` (primary)** — **one object per color, face-colored via a 3MF colorgroup** (the
+  3MF materials extension): one `<m:colorgroup>` with one color per filament, one
+  `<object>` per filament with every triangle pointing at its color index, and one build
+  item per object so the parts import aligned. Bambu Studio (2.5+) parses exactly this
+  "face coloring" data and shows its color-matching dialog on import — use
+  **File → Import → Import 3MF/STL/…** (or drag the file in), not "Open as project".
+  (`<basematerials>` is *not* parsed by Bambu Studio, which is why the previous export
+  came in grey.) PrusaSlicer/OrcaSlicer read colorgroups too. The active mode is stated
+  in the UI.
 - **`.stl` (fallback)** — binary, single solid, no color information.
 - **Legend JSON** — every swatch position (`square`, row, column, mm coordinates) mapped to its
   ordered recipe of `{color, hex, thickness_mm}`.

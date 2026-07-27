@@ -21,8 +21,8 @@ Project JSON schema
 A project captures everything needed to regenerate a model. Define and document a schema roughly
 like:
 
-json { "name": "my-calibration-v1", "params": { "swatchSize": 6, "swatchGap": 2, "squareGap": 8,
-"baseThickness": 1.0, "layerHeight": 0.1, "colors": { "c1": "#ff0000", "c2": "#00ff00", "c3":
+json { "name": "my-calibration-v1", "params": { "swatchSize": 6, "swatchGap": 0, "squareGap": 0,
+"layerHeight": 0.1, "colors": { "c1": "#ff0000", "c2": "#00ff00", "c3":
 "#0000ff" } }, "squares": [ /* the six-square definition, see below */ ] }
 
 Loading a project restores all params and the model; saving writes current UI state to a .json. The
@@ -31,9 +31,9 @@ and New. This is what lets me generate and keep multiple distinct calibration mo
 
 The model — six squares (core spec):
 
-A flat base plate holding six square grids of raised swatches. Each swatch is a stack of colored
-layers; each layer thickness is a multiple of the layer height. 3 configurable filament colors
-(default red, green, blue).
+Six square grids of raised swatches sitting directly on the build plate (no base plate).
+Each swatch is a stack of colored layers; each layer thickness is a multiple of the layer
+height. 3 configurable filament colors (default red, green, blue).
 
 Three single-color squares, one per color: each a 5×5 grid (25 swatches), thickness 0.1 → 2.5mm in
 0.1mm steps. A single-color swatch is one solid box (don't split into layers). One two-color square:
@@ -43,17 +43,17 @@ three-color squares: together 48 combos across two 5×5 grids (48 of 50 cells). 
 of the 3 colors (3!) × 8 thickness patterns (each of 3 layers is 0.1 or 0.2mm). Each swatch = 3
 stacked colored boxes.
 
-Total 147 swatches. Arrange the six squares on the shared base in a 3×2 layout with the configurable
+Total 147 swatches. Arrange the six squares in a 3×2 layout with the configurable
 square-gap between them.
 
 Layer / thickness rules
 
-Layer height default 0.1mm, configurable; snap all thicknesses to multiples of it. Every stack sits
-on a shared opaque base (default 1.0mm, configurable). Single-color square max 2.5mm; combo layers
+Layer height default 0.1mm, configurable; snap all thicknesses to multiples of it. Stacks sit
+directly on the build plate. Single-color square max 2.5mm; combo layers
 use 0.1/0.2mm.
 
-Tweakable UI parameters (defaults): swatch footprint (6×6mm), gap between swatches (2mm), gap
-between squares (8mm), base thickness (1.0mm), layer height (0.1mm), the 3 colors (hex pickers).
+Tweakable UI parameters (defaults): swatch footprint (6×6mm), gap between swatches (0mm), gap
+between squares (0mm), layer height (0.1mm), the 3 colors (hex pickers).
 Live 3D preview with orbit controls updates on any change.
 
 Labels & legend
@@ -74,7 +74,7 @@ keeps the server simple.
 
 Implementation notes
 
-Put layer height, base thickness, swatch size, gaps as clearly-commented constants/state. Generate
+Put layer height, swatch size, gaps as clearly-commented constants/state. Generate
 each square's recipes with a small readable function per square type (single, two-color,
 three-color) so the enumeration is verifiable against the counts (25, 25, 25, 24, 48). Use
 BoxGeometry per colored box, grouped by color for export. Provide clear README-style comments: how

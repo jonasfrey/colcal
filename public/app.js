@@ -10,13 +10,12 @@
  *   "name": "my-calibration-v1",
  *   "params": {
  *     "swatchSize": 6,        // swatch footprint in mm (square)
- *     "swatchGap": 2,         // gap between swatches inside a square, mm
- *     "squareGap": 8,         // gap between the six squares, mm
- *     "baseThickness": 1.0,   // shared opaque base plate, mm
+ *     "swatchGap": 0,         // gap between swatches inside a square, mm
+ *     "squareGap": 0,         // gap between the six squares, mm
  *     "layerHeight": 0.1,     // all thicknesses snap to multiples of this, mm
  *     "colors": {
  *       "c1": "#ff0000", "c2": "#00ff00", "c3": "#0000ff",
- *       "base": "#cfcfcf"     // base plate + embossed labels
+ *       "base": "#cfcfcf"     // embossed labels
  *     }
  *   },
  *   "squares": [              // the six-square definition; regenerable from params
@@ -81,7 +80,6 @@ const NUMERIC_PARAMS = [
   { key: "swatchSize", label: "Swatch footprint", unit: "mm", min: 1, max: 30, step: 0.5 },
   { key: "swatchGap", label: "Gap between swatches", unit: "mm", min: 0, max: 20, step: 0.5 },
   { key: "squareGap", label: "Gap between squares", unit: "mm", min: 0, max: 50, step: 1 },
-  { key: "baseThickness", label: "Base thickness", unit: "mm", min: 0.1, max: 10, step: 0.1 },
   { key: "layerHeight", label: "Layer height", unit: "mm", min: 0.02, max: 0.4, step: 0.01 },
 ];
 
@@ -89,7 +87,7 @@ const COLOR_PARAMS = [
   { key: "c1", label: `Color 1 (${COLOR_LABELS.c1})` },
   { key: "c2", label: `Color 2 (${COLOR_LABELS.c2})` },
   { key: "c3", label: `Color 3 (${COLOR_LABELS.c3})` },
-  { key: "base", label: "Base + labels" },
+  { key: "base", label: "Labels" },
 ];
 
 function buildControls() {
