@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<!--
+  colcal — multi-color filament calibration print generator (frontend).
+
+  Served by server.ts. Run with:   deno task start
+  Then open http://localhost:8000/
+
+  Files:
+    font.js       tiny stroke font used for the embossed labels
+    model.js      recipe enumeration + geometry generation (the model itself)
+    exporters.js  3MF / STL / legend export
+    app.js        UI wiring + Three.js preview
+
+  Three.js is loaded from a CDN via the import map below.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>colcal — filament calibration generator</title>
+    <style>
+      :root {
+        --bg: #15171c;
+        --panel: #1d2027;
+        --panel-2: #252932;
+        --line: #333846;
+        --fg: #e6e8ee;
+        --muted: #9aa2b4;
+        --accent: #5aa9ff;
+        --danger: #ff6b6b;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html, body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        display: flex;
+        background: var(--bg);
+        color: var(--fg);
+        font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+
+      /* ---------- sidebar ---------- */
+      #sidebar {
+        width: 330px;
+        flex: 0 0 330px;
+        height: 100vh;
+        overflow-y: auto;
+        background: var(--panel);
+        border-right: 1px solid var(--line);
+        padding: 14px;
+      }
+      h1 {
+        font-size: 15px;
+        margin: 0 0 2px;
+        letter-spacing: 0.04em;
+      }
+      h1 span {
+        color: var(--muted);
+        font-weight: 400;
+      }
+      section {
+        margin-top: 16px;
+      }
+      section > h2 {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.09em;
+        color: var(--muted);
+        margin: 0 0 8px;
+        font-weight: 600;
+      }
+
+      label.field {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 6px;
+      }
+      label.field > span {
+        color: var(--muted);
+      }
+      input, select, button {
+        font: inherit;
+        color: var(--fg);
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 5px 7px;
+      }
+      input[type="number"] {
+        width: 84px;
+        text-align: right;
+      }
+      input[type="color"] {
+        width: 46px;
+        height: 26px;
+        padding: 2px;
+        cursor: pointer;
+      }
+      input[type="text"] {
+        width: 100%;
+      }
+      select {
+        width: 100%;
+      }
+      input:focus, select:focus, button:focus {
+        outline: 1px solid var(--accent);
+      }
+
+      button {
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: var(--accent);
+      }
+      button.primary {
+        background: #2b4a70;
+        border-color: #3d6ea8;
+      }
+      button.danger:hover {
+        border-color: var(--danger);
+        color: var(--danger);
+      }
+      .row {
+        display: flex;
+        gap: 6px;
+        margin-top: 6px;
+      }
+      .row > * {
+        flex: 1;
+      }
+
+      .hint {
+        color: var(--muted);
+        font-size: 11px;
+        margin-top: 6px;
+      }
+      .hint code {
+        color: var(--fg);
+      }
+
+      table.stats {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      table.stats td {
+        padding: 2px 0;
+        color: var(--muted);
+      }
+      table.stats td:last-child {
+        text-align: right;
+        color: var(--fg);
+        font-variant-numeric: tabular-nums;
+      }
+      table.stats tr.total td {
+        border-top: 1px solid var(--line);
+        padding-top: 4px;
+        color: var(--fg);
+        font-weight: 600;
+      }
+
+      #status {
+        margin-top: 14px;
+        padding: 7px 9px;
+        border-radius: 5px;
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        color: var(--muted);
+        min-height: 32px;
+        font-size: 12px;
+      }
+      #status.error {
+        color: var(--danger);
+        border-color: #5a2b2b;
+      }
+      #status.ok {
+        color: #7fd48a;
+      }
+
+      /* ---------- viewport ---------- */
+      #view {
+        flex: 1;
+        position: relative;
+        min-width: 0;
+      }
+      #view canvas {
+        display: block;
+      }
+      #overlay {
+        position: absolute;
+        left: 12px;
+        bottom: 12px;
+        color: var(--muted);
+        font-size: 11px;
+        pointer-events: none;
+        background: rgba(21, 23, 28, 0.72);
+        padding: 6px 9px;
+        border-radius: 5px;
+        border: 1px solid var(--line);
+      }
+      #legendSwatches {
+        position: absolute;
+        right: 12px;
+        top: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      #legendSwatches div {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--fg);
+        background: rgba(21, 23, 28, 0.72);
+        padding: 4px 8px;
+        border-radius: 5px;
+        border: 1px solid var(--line);
+      }
+      #legendSwatches i {
+        width: 12px;
+        height: 12px;
+        border-radius: 3px;
+        display: block;
+        border: 1px solid #0006;
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="sidebar">
+      <h1>colcal <span>· filament calibration</span></h1>
+
+      <section>
+        <h2>Project</h2>
+        <label class="field" style="display: block">
+          <span>Name</span>
+          <input type="text" id="projectName" placeholder="my-calibration-v1" spellcheck="false">
+        </label>
+        <div class="row">
+          <button id="btnSave" class="primary">Save</button>
+          <button id="btnSaveAs">Save As…</button>
+          <button id="btnNew">New</button>
+        </div>
+        <div class="row">
+          <select id="projectList"><option value="">— saved projects —</option></select>
+        </div>
+        <div class="row">
+          <button id="btnLoad">Load</button>
+          <button id="btnDelete" class="danger">Delete</button>
+          <button id="btnRefresh">↻</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Parameters</h2>
+        <div id="numericParams"></div>
+        <div id="colorParams" style="margin-top: 8px"></div>
+        <div class="hint">
+          All thicknesses snap to multiples of the layer height. Changing the layer height
+          regenerates the swatch recipes.
+        </div>
+      </section>
+
+      <section>
+        <h2>Model</h2>
+        <table class="stats"><tbody id="stats"></tbody></table>
+      </section>
+
+      <section>
+        <h2>Export</h2>
+        <div class="row">
+          <button id="btn3mf" class="primary">Export .3mf</button>
+          <button id="btnStl">Export .stl</button>
+        </div>
+        <div class="row">
+          <button id="btnLegend">Export legend JSON</button>
+        </div>
+        <div class="hint" id="modeHint"></div>
+      </section>
+
+      <div id="status">Ready.</div>
+
+      <section>
+        <h2>Server</h2>
+        <div class="hint">
+          Projects are stored as <code>./projects/&lt;name&gt;.json</code>.<br>
+          Run: <code>deno task start</code><br>
+          = <code>deno run --allow-net --allow-read=./public,./projects --allow-write=./projects
+            server.ts</code>
+        </div>
+      </section>
+    </div>
+
+    <div id="view">
+      <div id="legendSwatches"></div>
+      <div id="overlay">drag = orbit · right-drag = pan · wheel = zoom</div>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

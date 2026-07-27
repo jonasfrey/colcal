@@ -1,0 +1,36 @@
+{
+  // colcal — multi-color filament calibration print generator.
+  //
+  // RUN COMMAND (exact):
+  //   deno run --allow-net --allow-read=./public,./projects --allow-write=./projects server.ts
+  // or simply:
+  //   deno task start
+  //
+  // Permission flags explained:
+  //   --allow-net                          the HTTP server (default http://localhost:8000)
+  //   --allow-read=./public,./projects     serve the frontend + read saved projects
+  //   --allow-write=./projects             create ./projects and write project .json files
+  //
+  // Projects are stored as individual .json files in ./projects/ (created on first run).
+  "tasks": {
+    "start": "deno run --allow-net --allow-read=./public,./projects --allow-write=./projects server.ts",
+    "dev": "deno run --watch --allow-net --allow-read=./public,./projects --allow-write=./projects server.ts"
+  },
+  // Mirrors the import map in public/index.html. The browser uses that one; this entry
+  // only exists so `deno check public/app.js` can resolve the bare "three" specifier.
+  // Keep the version in sync with index.html.
+  "imports": {
+    "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
+  },
+  "fmt": {
+    "lineWidth": 100,
+    "semiColons": true,
+    "singleQuote": false
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  }
+}
