@@ -3,7 +3,8 @@
  *
  * Two responsibilities, deliberately kept separate:
  *
- *   1. buildSquares(params)  -> the *recipes*: six squares of 5x5 cells, each cell either
+ *   1. buildSquares(params)  -> the *recipes*: six squares of cells (5x5 for the single-color
+ *                               squares, larger grids for the combo squares), each cell either
  *                               empty or an ordered stack of {color, thickness} layers.
  *                               Pure data, no geometry. This is what gets stored in the
  *                               project JSON and what the legend export describes.
@@ -41,14 +42,24 @@ export const COLOR_KEYS = ["c1", "c2", "c3"];
 /** Default single-letter names shown on the single-color squares. */
 export const COLOR_LABELS = { c1: "R", c2: "G", c3: "B" };
 
-/** Grid is always 5x5 — the counts in the spec (25/24/48) depend on it. */
-const GRID = 5;
+/** Single-color squares are always 5x5: 25 swatches, 1..25 layer-heights (0.1 .. 2.5mm
+ *  at the default 0.1mm). */
+const SINGLE_COLS = 5;
+const SINGLE_ROWS = 5;
+const SINGLE_MAX_STEPS = SINGLE_COLS * SINGLE_ROWS;
 
-/** Single-color square runs 1..25 layer-heights => 0.1 .. 2.5mm at the default 0.1mm. */
-const SINGLE_MAX_STEPS = GRID * GRID;
+/** Combo layers use 1, 2 or 3 layer-heights each (0.1 / 0.2 / 0.3mm by default). */
+const COMBO_STEPS = [1, 2, 3];
 
-/** Combo squares only ever use 1 or 2 layer-heights per layer (0.1 / 0.2mm by default). */
-const COMBO_STEPS = [1, 2];
+/**
+ * Combo grid dimensions, chosen so the enumerations below fill them exactly:
+ *   2-color: 3 pairs x 2 stacking orders x 3 bottom x 3 top = 54  -> 9 x 6
+ *   3-color: 6 orderings x 27 thickness patterns = 162            -> two 9 x 9
+ */
+const TWO_COLS = 9;
+const TWO_ROWS = 6;
+const THREE_COLS = 9;
+const THREE_ROWS = 9;
 
 /* ------------------------------------------------------------------ *
  * Params handling
@@ -101,13 +112,13 @@ function singleColorRecipes(colorKey, layerHeight) {
 }
 
 /**
- * Two-color square: 24 combos (the 25th cell stays empty).
+ * Two-color square: 54 combos filling a 9x6 grid.
  *
  *   3 unordered color pairs           (c1c2, c1c3, c2c3)
  *   x 2 stacking orders               (A on bottom, B on bottom)
- *   x 2 bottom thicknesses            (1 or 2 layer heights)
- *   x 2 top thicknesses               (1 or 2 layer heights)
- *   = 3 x 8 = 24
+ *   x 3 bottom thicknesses            (1, 2 or 3 layer heights)
+ *   x 3 top thicknesses               (1, 2 or 3 layer heights)
+ *   = 3 x 18 = 54
  */
 function twoColorRecipes(layerHeight) {
   const pairs = [["c1", "c2"], ["c1", "c3"], ["c2", "c3"]];
@@ -124,7 +135,7 @@ function twoColorRecipes(layerHeight) {
       }
     }
   }
-  return recipes; // 24
+  return recipes; // 54
 }
 
 /** All 6 orderings (3!) of the three colors, in a stable order. */
@@ -143,35 +154,39 @@ function colorOrderings() {
 }
 
 /**
- * Three-color combos: 48 total, spread over two 5x5 squares (48 of 50 cells).
+ * Three-color combos: 162 total, spread over two 9x9 squares (162 of 162 cells).
  *
  *   6 orderings of the 3 colors (3!)
- *   x 8 thickness patterns      (each of the 3 layers is 1 or 2 layer heights: 2^3)
- *   = 48
+ *   x 27 thickness patterns     (each of the 3 layers is 1, 2 or 3 layer heights: 3^3)
+ *   = 162
  *
- * Enumeration is ordering-major, so square A holds orderings 1-3 plus the first cell of
- * ordering 4, and square B the remainder — see splitThreeColor().
+ * Enumeration is ordering-major, so square A holds orderings 1-3 and square B orderings 4-6 —
+ * see buildSquares().
  */
 function threeColorRecipes(layerHeight) {
   const recipes = [];
   for (const ordering of colorOrderings()) {
-    for (let pattern = 0; pattern < 8; pattern++) {
-      // bit 2 = bottom layer, bit 1 = middle, bit 0 = top; 0 -> 1 step, 1 -> 2 steps.
-      const steps = [(pattern >> 2) & 1, (pattern >> 1) & 1, pattern & 1].map((b) => b + 1);
+    for (let pattern = 0; pattern < 27; pattern++) {
+      // Base-3 digits: bottom layer, middle, top; digit 0/1/2 -> 1/2/3 layer heights.
+      const steps = [
+        Math.floor(pattern / 9) % 3,
+        Math.floor(pattern / 3) % 3,
+        pattern % 3,
+      ].map((d) => d + 1);
       recipes.push(
         ordering.map((color, i) => ({ color, thickness: round4(steps[i] * layerHeight) })),
       );
     }
   }
-  return recipes; // 48
+  return recipes; // 162
 }
 
-/** Lay a flat recipe list out row-major into a 5x5 grid, padding with empty cells. */
-function toCells(recipes) {
+/** Lay a flat recipe list out row-major into a cols x rows grid, padding with empty cells. */
+function toCells(recipes, cols, rows) {
   const cells = [];
-  for (let i = 0; i < GRID * GRID; i++) {
-    const row = Math.floor(i / GRID);
-    const col = i % GRID;
+  for (let i = 0; i < cols * rows; i++) {
+    const row = Math.floor(i / cols);
+    const col = i % cols;
     cells.push({
       row,
       col,
@@ -186,17 +201,17 @@ function toCells(recipes) {
  * Build all six squares.
  *
  * Layout on the plate is 3 x 2:
- *   row 0:  R (c1)      G (c2)      B (c3)
- *   row 1:  2-COLOR     3-COLOR A   3-COLOR B
+ *   row 0:  R (c1)      G (c2)      B (c3)        — 5x5 each
+ *   row 1:  2-COLOR     3-COLOR A   3-COLOR B     — 9x6, 9x9, 9x9
  *
- * @returns array of { id, label, kind, gridCol, gridRow, cells[] }
+ * @returns array of { id, label, kind, gridCol, gridRow, cols, rows, cells[] }
  */
 export function buildSquares(params) {
   const { layerHeight } = normalizeParams(params);
 
   const three = threeColorRecipes(layerHeight);
-  const threeA = three.slice(0, 25); // fills square A completely
-  const threeB = three.slice(25); // 23 recipes -> 2 empty cells in square B
+  const threeA = three.slice(0, THREE_COLS * THREE_ROWS); // orderings 1-3
+  const threeB = three.slice(THREE_COLS * THREE_ROWS); // orderings 4-6
 
   const squares = [
     {
@@ -206,7 +221,9 @@ export function buildSquares(params) {
       color: "c1",
       gridCol: 0,
       gridRow: 0,
-      cells: toCells(singleColorRecipes("c1", layerHeight)),
+      cols: SINGLE_COLS,
+      rows: SINGLE_ROWS,
+      cells: toCells(singleColorRecipes("c1", layerHeight), SINGLE_COLS, SINGLE_ROWS),
     },
     {
       id: "single-c2",
@@ -215,7 +232,9 @@ export function buildSquares(params) {
       color: "c2",
       gridCol: 1,
       gridRow: 0,
-      cells: toCells(singleColorRecipes("c2", layerHeight)),
+      cols: SINGLE_COLS,
+      rows: SINGLE_ROWS,
+      cells: toCells(singleColorRecipes("c2", layerHeight), SINGLE_COLS, SINGLE_ROWS),
     },
     {
       id: "single-c3",
@@ -224,7 +243,9 @@ export function buildSquares(params) {
       color: "c3",
       gridCol: 2,
       gridRow: 0,
-      cells: toCells(singleColorRecipes("c3", layerHeight)),
+      cols: SINGLE_COLS,
+      rows: SINGLE_ROWS,
+      cells: toCells(singleColorRecipes("c3", layerHeight), SINGLE_COLS, SINGLE_ROWS),
     },
     {
       id: "two-color",
@@ -232,7 +253,9 @@ export function buildSquares(params) {
       kind: "two",
       gridCol: 0,
       gridRow: 1,
-      cells: toCells(twoColorRecipes(layerHeight)),
+      cols: TWO_COLS,
+      rows: TWO_ROWS,
+      cells: toCells(twoColorRecipes(layerHeight), TWO_COLS, TWO_ROWS),
     },
     {
       id: "three-color-a",
@@ -240,7 +263,9 @@ export function buildSquares(params) {
       kind: "three",
       gridCol: 1,
       gridRow: 1,
-      cells: toCells(threeA),
+      cols: THREE_COLS,
+      rows: THREE_ROWS,
+      cells: toCells(threeA, THREE_COLS, THREE_ROWS),
     },
     {
       id: "three-color-b",
@@ -248,15 +273,17 @@ export function buildSquares(params) {
       kind: "three",
       gridCol: 2,
       gridRow: 1,
-      cells: toCells(threeB),
+      cols: THREE_COLS,
+      rows: THREE_ROWS,
+      cells: toCells(threeB, THREE_COLS, THREE_ROWS),
     },
   ];
 
-  // Verifiable against the spec: 25 + 25 + 25 + 24 + 25 + 23 = 147 swatches.
+  // Verifiable against the spec: 25 + 25 + 25 + 54 + 81 + 81 = 291 swatches.
   const counts = squares.map((s) => s.cells.filter((c) => c.recipe).length);
   const total = counts.reduce((a, b) => a + b, 0);
-  if (total !== 147) {
-    console.warn(`colcal: expected 147 swatches, generated ${total} (${counts.join("+")})`);
+  if (total !== 291) {
+    console.warn(`colcal: expected 291 swatches, generated ${total} (${counts.join("+")})`);
   }
   return squares;
 }
@@ -371,41 +398,81 @@ function addLabel(g, text, size, x, y, align, z0, z1, width) {
   }
 }
 
-/** Derived layout numbers — everything on the plate is positioned from these. */
-export function computeLayout(params) {
+/**
+ * Derived layout numbers — everything on the plate is positioned from these.
+ *
+ * The squares differ in size (5x5 singles, 9x6 / 9x9 combos), so the 3x2 arrangement is
+ * computed as a table: each arrangement column is as wide as its widest square, each
+ * arrangement row as tall as its tallest square, and every square anchors bottom-left in
+ * its cell.
+ */
+export function computeLayout(params, squares) {
   const p = normalizeParams(params);
   const pitch = p.swatchSize + p.swatchGap; // swatch centre-to-centre
-  const gridSpan = GRID * p.swatchSize + (GRID - 1) * p.swatchGap; // 38mm by default
 
   // Text sizes scale with the model so odd swatch sizes still produce readable labels.
   const idxSize = clamp(p.swatchSize * 0.5, 1.5, 5); // row/column index digits
   const labelPad = idxSize * 1.8; // strip left of / below each grid
-  const titleSize = clamp(gridSpan / 11, 2, 8); // "3-COLOR A" etc.
-  const titleH = titleSize * 1.6; // strip above each grid
-
-  const cellW = labelPad + gridSpan;
-  const cellH = labelPad + gridSpan + titleH;
   const margin = Math.max(2, p.squareGap / 2); // border around the whole layout
 
-  const width = 2 * margin + 3 * cellW + 2 * p.squareGap;
-  const depth = 2 * margin + 2 * cellH + p.squareGap;
+  // Per-square spans and title sizes. cols/rows fall back to the cell coordinates so
+  // projects saved before squares carried explicit dimensions still lay out correctly.
+  const info = {};
+  for (const s of squares) {
+    const cols = s.cols ?? Math.max(...s.cells.map((c) => c.col)) + 1;
+    const rows = s.rows ?? Math.max(...s.cells.map((c) => c.row)) + 1;
+    const spanX = cols * p.swatchSize + (cols - 1) * p.swatchGap;
+    const spanY = rows * p.swatchSize + (rows - 1) * p.swatchGap;
+    const titleSize = clamp(spanX / 11, 2, 8); // "3-COLOR A" etc.
+    info[s.id] = {
+      cols,
+      rows,
+      spanX,
+      spanY,
+      titleSize,
+      titleH: titleSize * 1.6,
+      titleStroke: Math.max(0.45, titleSize * 0.14),
+    };
+  }
+
+  // Arrangement column widths / row heights = max over the squares occupying them.
+  const gridCols = Math.max(...squares.map((s) => s.gridCol)) + 1;
+  const gridRows = Math.max(...squares.map((s) => s.gridRow)) + 1;
+  const colW = [];
+  for (let gc = 0; gc < gridCols; gc++) {
+    colW.push(
+      Math.max(
+        ...squares.filter((s) => s.gridCol === gc).map((s) => labelPad + info[s.id].spanX),
+      ),
+    );
+  }
+  const rowH = [];
+  for (let gr = 0; gr < gridRows; gr++) {
+    rowH.push(
+      Math.max(
+        ...squares
+          .filter((s) => s.gridRow === gr)
+          .map((s) => labelPad + info[s.id].spanY + info[s.id].titleH),
+      ),
+    );
+  }
+
+  const width = 2 * margin + colW.reduce((a, b) => a + b, 0) + (gridCols - 1) * p.squareGap;
+  const depth = 2 * margin + rowH.reduce((a, b) => a + b, 0) + (gridRows - 1) * p.squareGap;
 
   return {
     ...p,
     pitch,
-    gridSpan,
     idxSize,
     labelPad,
-    titleSize,
-    titleH,
-    cellW,
-    cellH,
     margin,
+    colW,
+    rowH,
+    squares: info,
     width,
     depth,
     // Labels are at least 2 layers tall so they survive slicing.
     embossHeight: Math.max(2 * p.layerHeight, 0.2),
-    titleStroke: Math.max(0.45, titleSize * 0.14),
     idxStroke: Math.max(0.35, idxSize * 0.18),
   };
 }
@@ -419,7 +486,7 @@ export function computeLayout(params) {
  *   swatches — flat list with world positions + recipes, used by the legend export.
  */
 export function buildGeometry(params, squares) {
-  const L = computeLayout(params);
+  const L = computeLayout(params, squares);
   const baseTop = 0; // no base plate — everything sits directly on the build plate
 
   // One group per filament. Order matters only for display.
@@ -438,9 +505,15 @@ export function buildGeometry(params, squares) {
   let maxZ = baseTop;
 
   for (const square of squares) {
-    // Square origin. gridRow 0 is the top (higher Y) row of the 3x2 arrangement.
-    const cellX = ox + L.margin + square.gridCol * (L.cellW + L.squareGap);
-    const cellY = oy + L.margin + (1 - square.gridRow) * (L.cellH + L.squareGap);
+    const S = L.squares[square.id];
+
+    // Arrangement cell origin (bottom-left). gridRow 0 is the top (higher Y) row.
+    let cellX = ox + L.margin;
+    for (let gc = 0; gc < square.gridCol; gc++) cellX += L.colW[gc] + L.squareGap;
+    let cellY = oy + L.margin;
+    for (let gr = square.gridRow + 1; gr < L.rowH.length; gr++) {
+      cellY += L.rowH[gr] + L.squareGap;
+    }
     const gridX0 = cellX + L.labelPad;
     const gridY0 = cellY + L.labelPad;
 
@@ -448,17 +521,17 @@ export function buildGeometry(params, squares) {
     addLabel(
       groups.base,
       square.label,
-      L.titleSize,
-      gridX0 + L.gridSpan / 2,
-      gridY0 + L.gridSpan + L.titleH * 0.25,
+      S.titleSize,
+      gridX0 + S.spanX / 2,
+      gridY0 + S.spanY + S.titleH * 0.25,
       "center",
       baseTop,
       baseTop + L.embossHeight,
-      L.titleStroke,
+      S.titleStroke,
     );
 
-    // Column indices 1..5 below the grid, row indices 1..5 to its left.
-    for (let i = 0; i < GRID; i++) {
+    // Column indices 1..cols below the grid, row indices 1..rows to its left.
+    for (let i = 0; i < S.cols; i++) {
       const cx = gridX0 + i * L.pitch + L.swatchSize / 2;
       addLabel(
         groups.base,
@@ -471,8 +544,10 @@ export function buildGeometry(params, squares) {
         baseTop + L.embossHeight,
         L.idxStroke,
       );
+    }
+    for (let i = 0; i < S.rows; i++) {
       // Row i counts downwards from the top of the grid.
-      const cy = gridY0 + (GRID - 1 - i) * L.pitch + L.swatchSize / 2;
+      const cy = gridY0 + (S.rows - 1 - i) * L.pitch + L.swatchSize / 2;
       addLabel(
         groups.base,
         String(i + 1),
@@ -490,7 +565,7 @@ export function buildGeometry(params, squares) {
     for (const cell of square.cells) {
       if (!cell.recipe || cell.recipe.length === 0) continue;
       const x0 = gridX0 + cell.col * L.pitch;
-      const y0 = gridY0 + (GRID - 1 - cell.row) * L.pitch;
+      const y0 = gridY0 + (S.rows - 1 - cell.row) * L.pitch;
       const x1 = x0 + L.swatchSize;
       const y1 = y0 + L.swatchSize;
 

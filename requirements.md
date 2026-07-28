@@ -37,20 +37,20 @@ height. 3 configurable filament colors (default red, green, blue).
 
 Three single-color squares, one per color: each a 5×5 grid (25 swatches), thickness 0.1 → 2.5mm in
 0.1mm steps. A single-color swatch is one solid box (don't split into layers). One two-color square:
-5×5 grid, 24 combos (25th cell empty). The 24 = 3 color pairs × 8 each, where each pair's 8 = 2
-stacking orders × {0.1, 0.2mm} bottom × {0.1, 0.2mm} top. Each swatch = 2 stacked colored boxes. Two
-three-color squares: together 48 combos across two 5×5 grids (48 of 50 cells). The 48 = 6 orderings
-of the 3 colors (3!) × 8 thickness patterns (each of 3 layers is 0.1 or 0.2mm). Each swatch = 3
+9×6 grid, 54 combos. The 54 = 3 color pairs × 18 each, where each pair's 18 = 2 stacking orders ×
+{0.1, 0.2, 0.3mm} bottom × {0.1, 0.2, 0.3mm} top. Each swatch = 2 stacked colored boxes. Two
+three-color squares: together 162 combos across two 9×9 grids. The 162 = 6 orderings of the 3
+colors (3!) × 27 thickness patterns (each of 3 layers is 0.1, 0.2 or 0.3mm). Each swatch = 3
 stacked colored boxes.
 
-Total 147 swatches. Arrange the six squares in a 3×2 layout with the configurable
-square-gap between them.
+Total 291 swatches. Arrange the six squares in a 3×2 layout with the configurable
+square-gap between them; each arrangement column/row sizes to its largest square.
 
 Layer / thickness rules
 
 Layer height default 0.1mm, configurable; snap all thicknesses to multiples of it. Stacks sit
 directly on the build plate. Single-color square max 2.5mm; combo layers
-use 0.1/0.2mm.
+use 0.1/0.2/0.3mm.
 
 Tweakable UI parameters (defaults): swatch footprint (6×6mm), gap between swatches (0mm), gap
 between squares (0mm), layer height (0.1mm), the 3 colors (hex pickers).
@@ -76,7 +76,7 @@ Implementation notes
 
 Put layer height, swatch size, gaps as clearly-commented constants/state. Generate
 each square's recipes with a small readable function per square type (single, two-color,
-three-color) so the enumeration is verifiable against the counts (25, 25, 25, 24, 48). Use
+three-color) so the enumeration is verifiable against the counts (25, 25, 25, 54, 81, 81). Use
 BoxGeometry per colored box, grouped by color for export. Provide clear README-style comments: how
 to run the Deno server, where projects are stored, and the permission flags.
 

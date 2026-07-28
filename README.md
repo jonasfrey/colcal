@@ -74,6 +74,8 @@ Everything else is served statically from `./public`.
       "kind": "single",
       "gridCol": 0,
       "gridRow": 0, // position in the 3x2 plate layout
+      "cols": 5,
+      "rows": 5, // combo squares use larger grids (9x6 / 9x9)
       "cells": [
         { "row": 0, "col": 0, "id": "R1C1", "recipe": [{ "color": "c1", "thickness": 0.1 }] }, // ordered bottom -> top
         { "row": 0, "col": 1, "id": "R1C2", "recipe": null } // null = empty cell
@@ -89,24 +91,25 @@ Everything else is served statically from `./public`.
 
 ## The model
 
-Six 5×5 grids of raised swatches, laid out 3×2. There is no base plate — swatches and
+Six grids of raised swatches, laid out 3×2. There is no base plate — swatches and
 labels sit directly on the build plate:
 
 ```
-R          G          B          <- one square per filament color
-2-COLOR    3-COLOR A  3-COLOR B
+R (5×5)      G (5×5)      B (5×5)      <- one square per filament color
+2-COLOR      3-COLOR A    3-COLOR B
+(9×6)        (9×9)        (9×9)
 ```
 
-| Square        | Swatches             | Enumeration                                                                   |
-| ------------- | -------------------- | ----------------------------------------------------------------------------- |
-| R / G / B     | 25 each              | one solid box, thickness 1…25 layer heights (0.1 → 2.5 mm at 0.1)             |
-| 2-COLOR       | 24 (25th cell empty) | 3 color pairs × 2 stacking orders × 2 bottom × 2 top thicknesses (0.1/0.2 mm) |
-| 3-COLOR A + B | 25 + 23 = 48         | 6 orderings (3!) × 8 thickness patterns (each layer 0.1 or 0.2 mm)            |
+| Square        | Swatches     | Enumeration                                                                             |
+| ------------- | ------------ | --------------------------------------------------------------------------------------- |
+| R / G / B     | 25 each      | one solid box, thickness 1…25 layer heights (0.1 → 2.5 mm at 0.1)                       |
+| 2-COLOR       | 54 (9×6)     | 3 color pairs × 2 stacking orders × 3 bottom × 3 top thicknesses (0.1/0.2/0.3 mm)       |
+| 3-COLOR A + B | 81 + 81 = 162 | 6 orderings (3!) × 27 thickness patterns (each layer 0.1, 0.2 or 0.3 mm)               |
 
-**147 swatches total.** Each square is embossed with its identifier plus 1–5 row indices (left) and
+**291 swatches total.** Each square is embossed with its identifier plus row indices (left) and
 column indices (below), so a physical swatch maps back to a cell — cell `R3C4` is row 3, column 4.
 
-At the defaults (no gaps between swatches or squares) the layout is ~110 × 84 mm and 2.5 mm tall.
+At the defaults (no gaps between swatches or squares) the layout is ~182 × 111 mm and 2.5 mm tall.
 
 ## Export
 
